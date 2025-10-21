@@ -1,7 +1,7 @@
 import psycopg2
 
 conn = psycopg2.connect(
-    "user='postgres' host='localhost' password='postgres'"
+    "user='postgres' host='0.0.0.0' password='postgres'"
 )
 with conn.cursor() as cur:
 
@@ -85,4 +85,6 @@ FROM
 JOIN
     node_embeddings_im im_emb ON real_emb.curie = im_emb.curie;
     """)
+
+    cur.execute("CREATE INDEX ON node_embeddings USING hnsw (embedding vector_l2_ops);")
     conn.commit()

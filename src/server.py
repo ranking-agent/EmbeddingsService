@@ -8,7 +8,8 @@ from src.operations import (
     find_curies,
     get_distance_between,
     get_distance_from,
-    find_node_embedding
+    find_node_embedding,
+    find_node_embedding_from_embedding
 )
 from src.models import Query, Response
 
@@ -64,7 +65,51 @@ ONE_CURIE_EXAMPLE = {
         0.28324828,
         2.3744113,
         -0.50940543
-    ]
+    ],
+    "curie_embedding": {
+        "CHEBI:45783": [
+            0.81750953,
+            1.0488763,
+            -1.5758717,
+            0.2237116,
+            0.27225772,
+            -0.8299847,
+            -1.6104082,
+            0.6143499,
+            0.9770484,
+            -1.2727942,
+            0.57596195,
+            0.7453773,
+            -0.40145895,
+            1.530515,
+            -0.120044276,
+            0.545806,
+            0.73505294,
+            0.42978016,
+            -2.8879676,
+            1.4999776,
+            -0.8597314,
+            1.692653,
+            -0.961887,
+            0.6565495,
+            0.6609372,
+            1.7206875,
+            0.7943472,
+            1.4054924,
+            -0.6167662,
+            -0.59227514,
+            0.86384326,
+            2.0739682,
+            -0.23538697,
+            0.58989894,
+            -0.36690766,
+            -0.42463586,
+            0.13450661,
+            0.2837754,
+            2.0861297,
+            -0.43254542
+        ]
+    }
 }
 
 TWO_CURIE_EXAMPLE = {
@@ -86,8 +131,8 @@ APP = FastAPI(title=title)
     },
 )
 def get_embedding_for_curie(query: Query = Body(..., example=ONE_CURIE_EXAMPLE)):
-    if query.curies and len(query.curies) == 1:
-        embedding = get_embedding(query.curies[0])
+    if query.curies:
+        embedding = get_embedding(query.curies)
         if embedding:
             response = Response.model_validate(
                 {
@@ -206,15 +251,13 @@ def get_distance_from_embedding(query: Query = Body(..., example=ONE_CURIE_EXAMP
     },
 )
 def predict_node_from_relation(query: Query = Body(..., example=ONE_CURIE_EXAMPLE)):
-    curies = query.curies
     relation = query.relation
     if (
-        curies
-        and len(curies) == 1
+        query.curies
         and relation
     ):
         node_embedding = find_node_embedding(
-            curies[0],
+            query.curies,
             relation.predicate,
             relation.object_aspect_qualifier,
             relation.object_direction_qualifier,
@@ -227,3 +270,34 @@ def predict_node_from_relation(query: Query = Body(..., example=ONE_CURIE_EXAMPL
                     "node_embedding": node_embedding
                 }
             )
+        else:
+            return Response.model_validate(
+                {}
+            )
+    elif (
+        query.curie_embedding
+        and relation
+    ):
+        node_embedding = find_node_embedding_from_embedding(
+            query.curie_embedding,
+            relation.predicate,
+            relation.object_aspect_qualifier,
+            relation.object_direction_qualifier,
+            relation.subject_aspect_qualifier,
+            relation.subject_direction_qualifier
+        )
+        if node_embedding is not None:
+            return Response.model_validate(
+                {
+                    "node_embedding": node_embedding
+                }
+            )
+        else:
+            return Response.model_validate(
+                {}
+            )
+    else:
+        return Response.model_validate(
+                {}
+            )
+    

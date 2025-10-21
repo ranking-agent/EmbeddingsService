@@ -1,28 +1,32 @@
+from collections import defaultdict
 import psycopg2
 import numpy
 import json
 
 
-def get_embedding(curie) -> str | None:
+def get_embedding(curie):
     conn = psycopg2.connect(
-        "user='postgres' host='localhost' password='postgres' port='5432'"
+        "user='postgres' host='0.0.0.0' password='postgres' port='5432'"
     )
     with conn.cursor() as cur:
-        query = """SELECT embedding
+        query = """SELECT curie, embedding
         FROM node_embeddings
-        WHERE curie = %s;"""
+        WHERE curie IN %s;"""
 
-        cur.execute(query, (curie,))
-        res = cur.fetchone()
-        if res:
-            return json.loads(res[0])
+        cur.execute(query, (tuple(curie),))
+        resp = cur.fetchall()
+        curie_embedding = {}
+        if resp:
+            for res in resp:
+                curie_embedding[res[0]] = json.loads(res[1])
         else:
             return None
+        return curie_embedding
 
 
 def find_neighbors(curie, distance_threshold=None, num_neighbors=5):
     conn = psycopg2.connect(
-        "user='postgres' host='localhost' password='postgres' port='5432'"
+        "user='postgres' host='0.0.0.0' password='postgres' port='5432'"
     )
 
     with conn.cursor() as cur:
@@ -49,7 +53,7 @@ def find_neighbors(curie, distance_threshold=None, num_neighbors=5):
 
 def find_curies(embedding_list, distance_threshold=None, num_curies=5):
     conn = psycopg2.connect(
-        "user='postgres' host='localhost' password='postgres' port='5432'"
+        "user='postgres' host='0.0.0.0' password='postgres' port='5432'"
     )
 
     embedding = f"[{','.join(str(emb) for emb in embedding_list)}]"
@@ -75,7 +79,7 @@ def find_curies(embedding_list, distance_threshold=None, num_curies=5):
 
 def get_distance_between(curie1, curie2):
     conn = psycopg2.connect(
-        "user='postgres' host='localhost' password='postgres' port='5432'"
+        "user='postgres' host='0.0.0.0' password='postgres' port='5432'"
     )
 
     with conn.cursor() as cur:
@@ -94,7 +98,7 @@ def get_distance_between(curie1, curie2):
 
 def get_distance_from(curie, embedding_list):
     conn = psycopg2.connect(
-        "user='postgres' host='localhost' password='postgres' port='5432'"
+        "user='postgres' host='0.0.0.0' password='postgres' port='5432'"
     )
 
     embedding = f"[{','.join(str(emb) for emb in embedding_list)}]"
@@ -113,39 +117,40 @@ def get_distance_from(curie, embedding_list):
 
 
 def find_node_embedding(
-    curie,
+    curies,
     predicate,
-    object_aspect_qualifier,
-    object_direction_qualifier,
-    subject_aspect_qualifier,
-    subject_direction_qualifier
+    object_aspect_qualifier="None",
+    object_direction_qualifier="None",
+    subject_aspect_qualifier="None",
+    subject_direction_qualifier="None"
 ):
     conn = psycopg2.connect(
-        "user='postgres' host='localhost' password='postgres' port='5432'"
+        "user='postgres' host='0.0.0.0' password='postgres' port='5432'"
     )
 
     with conn.cursor() as cur:
-        query = """SELECT embedding
+        query = """SELECT curie, embedding
         FROM node_embeddings_real
-        WHERE curie = %s;"""
+        WHERE curie IN %s;"""
 
-        cur.execute(query, (curie,))
-        curie_real = cur.fetchone()
-        if curie_real:
-            curie_real = json.loads(curie_real[0])
-        else:
-            return
+        cur.execute(query, (tuple(curies),))
+        curie_embedding = defaultdict(dict)
+        for curie_real in cur.fetchall():
+            if curie_real:
+                curie_embedding[curie_real[0]]["real"] = json.loads(curie_real[1])
+            else:
+                return {}
         
-        query = """SELECT embedding
+        query = """SELECT curie, embedding
         FROM node_embeddings_im
-        WHERE curie = %s;"""
+        WHERE curie IN %s;"""
 
-        cur.execute(query, (curie,))
-        curie_im = cur.fetchone()
-        if curie_im:
-            curie_im = json.loads(curie_im[0])
-        else:
-            return
+        cur.execute(query, (tuple(curies),))
+        for curie_im in cur.fetchall():
+            if curie_im:
+                curie_embedding[curie_im[0]]["im"] = json.loads(curie_im[1])
+            else:
+                return {}
         
         query = """SELECT embedding
         FROM edge_embeddings
@@ -169,20 +174,79 @@ def find_node_embedding(
         if pred_emb:
             pred_emb = json.loads(pred_emb[0])
         else:
-            return
+            return {}
         pred_real = numpy.cos(pred_emb)
         pred_im = numpy.sin(pred_emb)
-        node_real = curie_real * pred_real - curie_im * pred_im
-        node_im = curie_real * pred_im + curie_im * pred_real
-        node_emb = [
-            float(val)
-            for val in node_real
-        ]
-        node_emb.extend(
-            [
-                float(val)
-                for val in node_im
+        node_emb = {}
+        for curie, curie_emb in curie_embedding.items():
+            node_emb[curie] = [
+                float(emb_val)
+                for emb_val in curie_emb["real"] * pred_real - curie_emb["im"] * pred_im
             ]
-        )
+            node_emb[curie].extend(
+                [
+                    float(emb_val)
+                    for emb_val in curie_emb["real"] * pred_im + curie_emb["im"] * pred_real
+                ]
+            )
+        
         return node_emb
     
+def find_node_embedding_from_embedding(
+    curie_embedding_mapping,
+    predicate,
+    object_aspect_qualifier="None",
+    object_direction_qualifier="None",
+    subject_aspect_qualifier="None",
+    subject_direction_qualifier="None"
+):
+    conn = psycopg2.connect(
+        "user='postgres' host='0.0.0.0' password='postgres' port='5432'"
+    )
+
+    with conn.cursor() as cur:
+
+        curie_embedding = defaultdict(dict)
+        for curie, emb in curie_embedding_mapping.items():
+            curie_embedding[curie]["re"] = emb[:20]
+            curie_embedding[curie]["im"] = emb[20:]
+        
+        query = """SELECT embedding
+        FROM edge_embeddings
+        WHERE predicate = %s
+        AND object_aspect_qualifier = %s
+        AND object_direction_qualifier = %s
+        AND subject_aspect_qualifier = %s
+        AND subject_direction_qualifier = %s;"""
+
+        cur.execute(
+            query,
+            (
+                predicate,
+                object_aspect_qualifier,
+                object_direction_qualifier,
+                subject_aspect_qualifier,
+                subject_direction_qualifier
+            )
+        )
+        pred_emb = cur.fetchone()
+        if pred_emb:
+            pred_emb = json.loads(pred_emb[0])
+        else:
+            return {}
+        pred_re = numpy.cos(pred_emb)
+        pred_im = numpy.sin(pred_emb)
+        node_emb = {}
+        for curie, curie_emb in curie_embedding.items():
+            node_emb[curie] = [
+                float(emb_val)
+                for emb_val in curie_emb["re"] * pred_re - curie_emb["im"] * pred_im
+            ]
+            node_emb[curie].extend(
+                [
+                    float(emb_val)
+                    for emb_val in curie_emb["re"] * pred_im + curie_emb["im"] * pred_re
+                ]
+            )
+        
+        return node_emb
