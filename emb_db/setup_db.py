@@ -86,5 +86,6 @@ JOIN
     node_embeddings_im im_emb ON real_emb.curie = im_emb.curie;
     """)
 
-    cur.execute("CREATE INDEX ON node_embeddings USING hnsw (embedding vector_l2_ops);")
+    cur.execute("CREATE INDEX ON node_embeddings USING hnsw (embedding vector_l2_ops) WITH (m = 32, ef_construction = 128);")
+    cur.execute("SET hnsw.ef_search = 24;")
     conn.commit()
